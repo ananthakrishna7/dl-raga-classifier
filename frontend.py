@@ -7,5 +7,4 @@ uploadPage = st.Page("./pages/upload.py", title="Uploads", url_path="/upload")
 
 pg = st.navigation([homePage, modelPage, uploadPage])
 
-
 pg.run()
