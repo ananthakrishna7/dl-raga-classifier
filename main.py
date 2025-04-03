@@ -1,55 +1,120 @@
-import librosa as lr
-from tensorflow import keras
-import numpy as np
-import matplotlib.pyplot as plt
 import os
+import librosa
+import soundfile as sf
+import numpy as np
+from tqdm import tqdm
 
-'''Assumes music files are under respective
-raga folders, loads enough snippets of each 
-raga to make all classes have equal training
-samples in both train and test sets'''
-# BUG: Reading from mp4
-def load_preprocess(path: str, samples: int=10, train:float=0.8): # full path to ragas folder
-    os.chdir(path)
-    X_train, X_test = [], [] # chromagrams
-    Y_train, Y_test = [], [] # ragas
-    train_samples = int(samples*train)
-    test_samples = samples - train_samples
-    for folder in os.listdir():
-        os.chdir(path + "/" + folder)
-        songs = os.listdir()
-        if (len(songs) < samples):
-            snippets = []
-            i = 0
-            offset = 0
-            length = 0
-            while (length < samples): # adjust this in case of librosa errors, there may not be songs long enough. can also reduce snippet size
-                print(i)
-                mus, sr = lr.load(songs[i], duration=30.0, offset=30.0*i)
-                chromagram = lr.feature.chroma_cqt(y=mus, sr=sr)
-                snippets.append(chromagram)
-                length += 1
-                i += 1
-                if i >= len(songs) - 1:
-                    i = 0
-                    offset += 1
-            # we will have required no. of songs now (hopefully)
-            X_train.extend(snippets[:train_samples])
-            X_test.extend(snippets[train_samples:])
-            Y_train.extend([folder for _ in range(train_samples)]) # that many songs from the same raga
-            Y_test.extend([folder for _ in range(test_samples)]) # that many songs from the same raga
-        else: # load all songs; the more the merrier ;)
-            snippets = []
-            for song in songs:
-                mus, sr = lr.load(song, duration=30.0)
-                chromagram = lr.feature.chroma_cqt(y=mus, sr=sr)
-                snippets.append(chromagram)
-            X_train.extend(snippets[:train_samples])
-            X_test.extend(snippets[train_samples:])
-            Y_train.extend([folder for _ in range(train_samples)]) # that many songs from the same raga
-            Y_test.extend([folder for _ in range(test_samples)]) # that many songs from the same raga
-    return X_train, X_test, Y_train, Y_test # change to np.array if required
+# Paths
+INPUT_FOLDER = "../ragas"           
+OUTPUT_FOLDER = "preprocessed"   
+TARGET_DURATION = 30  # 30 seconds in seconds
+SAMPLE_RATE = 22050              
+
+# Ensure output directory exists
+
+def init_process_raga_folder(raga_name, raga_path):
+    """Processes all MP3 files in a given raga folder."""
+    os.makedirs(OUTPUT_FOLDER)
+    output_raga_path = os.path.join(OUTPUT_FOLDER, raga_name)
+    os.makedirs(output_raga_path, exist_ok=True)
+    
+    mp3_files = [f for f in os.listdir(raga_path) if f.endswith(".mp3")]
+
+    chromagram_data = []  # Store chromagrams for training
+    labels = []  # Store labels for training
+    with tqdm(mp3_files, desc=f"Processing {raga_name}") as progress_bar:
+        for mp3_file in progress_bar:
+            mp3_path = os.path.join(raga_path, mp3_file)
+
+            try:
+                # Load audio using librosa
+                y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE)
+
+                # Skip if audio is shorter than 30 seconds
+                total_duration = librosa.get_duration(y=y, sr=sr)
+                if total_duration < TARGET_DURATION:
+                    continue
+
+                # Split into multiple 30-sec segments
+                num_segments = int(total_duration // TARGET_DURATION)
+
+                for segment_idx in range(num_segments):
+                    start_sample = segment_idx * TARGET_DURATION * sr
+                    end_sample = start_sample + TARGET_DURATION * sr
+                    segment_audio = y[int(start_sample):int(end_sample)]
+
+                    # Save segment as MP3
+                    segment_filename = f"{os.path.splitext(mp3_file)[0]}_part{segment_idx+1}.mp3"
+                    segment_path = os.path.join(output_raga_path, segment_filename)
+                    sf.write(segment_path, segment_audio, sr, format="MP3")
+
+                    # Extract chromagram (keep in memory)
+                    chroma = librosa.feature.chroma_stft(y=segment_audio, sr=sr, n_chroma=12, n_fft=4096)
+                    chromagram_data.append(chroma)  # Store for training
+                    labels.append(raga_name)  # Store label for training
+
+            except Exception as e:
+                print(f"Error processing {mp3_file}: {e}")
+
+    return chromagram_data, labels
+
+def first_run():
+    # Iterate through raga subfolders
+    all_chromagrams = []
+    all_labels = []
+    raga_folders = [f for f in os.listdir(INPUT_FOLDER) if os.path.isdir(os.path.join(INPUT_FOLDER, f))]
+    for raga_folder in raga_folders:
+        chroma_data, labels = init_process_raga_folder(raga_folder, os.path.join(INPUT_FOLDER, raga_folder))
+        all_chromagrams.extend(chroma_data)
+        all_labels.extend(labels)
+    print(f"Processed {len(all_chromagrams)} chromagrams from {len(raga_folders)} raga folders.")
+    # Save the chromagrams and labels to a file
+    np.savez("chromagrams.npz", chromagrams=all_chromagrams, labels=all_labels)
+
+    print(f"Preprocessing complete! Processed MP3s saved in '{OUTPUT_FOLDER}'.")
+    return all_chromagrams
+
+def process_raga_folders():
+    # check if chromagrams.npz exists
+    if os.path.exists("chromagrams.npz"):
+        print("Chromagrams already processed. Loading from file...")
+        data = np.load("chromagrams.npz")
+        all_chromagrams = data['chromagrams']
+        labels = data['labels']
+        return all_chromagrams, labels
+    
+    # Check if the output folder already exists
+    if os.path.exists(OUTPUT_FOLDER):
+        print(f"Output folder '{OUTPUT_FOLDER}' already exists. Skipping preprocessing.")
+        
+        raga_folders = [f for f in os.listdir(OUTPUT_FOLDER) if os.path.isdir(os.path.join(OUTPUT_FOLDER, f))]
+        all_chromagrams = []
+        labels = []
+        for raga_folder in raga_folders:
+            files = os.listdir(os.path.join(OUTPUT_FOLDER, raga_folder))
+            for file in files:
+                if file.endswith(".mp3"):
+                    chroma = get_chromagram(os.path.join(OUTPUT_FOLDER, raga_folder, file), SAMPLE_RATE)
+                    all_chromagrams.append(chroma)
+                    labels.append(raga_folder)
+        print(f"Loaded {len(all_chromagrams)} chromagrams from existing output folder.")
+        np.savez("chromagrams.npz", chromagrams=all_chromagrams, labels=labels)
+        # Return the loaded chromagrams
+        return all_chromagrams, labels
+
+    # If not, run the first run to process the folders
+    all_chromagrams, labels = first_run()
+    return all_chromagrams, labels
+
+def get_chromagram(music_path, sample_rate):
+    music = librosa.load(music_path, sr=sample_rate) # may need to change sample rate
+    music = music[0]
+
+    return librosa.feature.chroma_stft(y=music, sr=sample_rate, n_chroma=12, n_fft=4096)
 
 if __name__ == "__main__":
-    Xtr, Xts, Ytr, Yts = load_preprocess("/home/ananthakrishnan/sem6/Neural Networks and Deep Learning/project/ragas")
-    print(Xtr, Ytr)
+    all_chromagrams, labels = process_raga_folders()
+    print(all_chromagrams)
+    print(labels)
+    print(f"Processed {len(all_chromagrams)} chromagrams.")
+    print(f"Labels: {len(labels)}")
