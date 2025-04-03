@@ -3,6 +3,11 @@ import librosa
 import soundfile as sf
 import numpy as np
 from tqdm import tqdm
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow import keras
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import LabelEncoder
 
 # Paths
 INPUT_FOLDER = "../ragas"           
@@ -112,9 +117,72 @@ def get_chromagram(music_path, sample_rate):
 
     return librosa.feature.chroma_stft(y=music, sr=sample_rate, n_chroma=12, n_fft=4096)
 
+def create_model(input_shape, num_classes):
+    model = models.Sequential()
+
+    model.add(layers.Input(shape=input_shape))
+    
+    model.add(layers.Conv2D(32, (3, 3), activation='relu', padding='same'))
+    model.add(layers.BatchNormalization())
+    
+    model.add(layers.Conv2D(32, (3, 3), activation='relu', padding='same'))
+    model.add(layers.BatchNormalization())
+
+    model.add(layers.MaxPooling2D())
+
+    model.add(layers.Conv2D(64, (3, 3), activation='relu', padding='same'))
+    model.add(layers.BatchNormalization())
+    
+    model.add(layers.Conv2D(64, (3, 3), activation='relu', padding='same'))
+    model.add(layers.BatchNormalization())
+
+    model.add(layers.MaxPooling2D())
+
+    model.add(layers.Conv2D(64, (3, 3), activation='relu', padding='same'))
+    model.add(layers.BatchNormalization())
+
+    # Reshape for LSTM layers
+    model.add(layers.Flatten())
+   
+    # model.add(layers.Permute((2, 1)))  # Permute the dimensions for LSTM input
+
+    # # # Add LSTM layers
+    # model.add(layers.LSTM(64, return_sequences=True))
+    # model.add(layers.LSTM(64, return_sequences=True))
+    # model.add(layers.LSTM(32))
+
+    # Fully connected layers
+    model.add(layers.Dense(128, activation='relu'))
+    model.add(layers.Dropout(0.5))
+    model.add(layers.Dense(num_classes, activation='softmax'))
+
+    return model
+
+
 if __name__ == "__main__":
-    all_chromagrams, labels = process_raga_folders()
-    print(all_chromagrams)
-    print(labels)
-    print(f"Processed {len(all_chromagrams)} chromagrams.")
-    print(f"Labels: {len(labels)}")
+    X, y = process_raga_folders()
+    le = LabelEncoder()
+    y = le.fit_transform(y)
+    model = create_model((12,1292, 1), 95)
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    fitted = model.fit(X, y, epochs=10, batch_size=32, validation_split=0.2, verbose=1)
+    plt.figure(figsize=(12, 4))
+    plt.plot(fitted.history['loss'], label='Loss')
+    plt.plot(fitted.history['val_loss'], label='Validation Loss')
+    plt.title('Loss vs Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig("loss_plot.png")
+    plt.figure(figsize=(12, 4))
+    plt.plot(fitted.history['accuracy'], label='Accuracy')
+    plt.plot(fitted.history['val_accuracy'], label='Validation Accuracy')
+    plt.title('Accuracy vs Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.savefig("accuracy_plot.png")
+    # Save the model
+    model.save("raga_model.h5")
+    print("Model saved as 'raga_model.h5'")
+    
