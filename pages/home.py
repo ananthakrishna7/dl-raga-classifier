@@ -196,7 +196,7 @@ with tab3:
     st.markdown("""
     ### Technology Stack
     
-    - **Programming Language**: Python 3.8+
+    - **Programming Language**: Python 3.8+ (≤ 11)
     - **Audio Processing**: Librosa, SoundFile
     - **Data Handling**: NumPy, Pandas
     - **Model Development**: TensorFlow 2.x, Keras
@@ -256,7 +256,7 @@ with tab3:
     
     ```
     raga_classification/
-    ├── data/
+    ├── data/                       # Not included in repository due to size
     │   ├── raw/                    # Raw MP3 files by raga
     │   │   ├── Bhairav/
     │   │   ├── Yaman/
@@ -266,61 +266,74 @@ with tab3:
     ├── models/
     │   ├── raga_model.h5           # Trained model
     │   └── checkpoints/            # Training checkpoints
-    ├── src/
-    │   ├── preprocessing.py        # Audio preprocessing module
-    │   ├── feature_extraction.py   # Feature extraction module
-    │   ├── model.py                # Model architecture definition
-    │   └── training.py             # Training script
-    ├── notebooks/                  # Analysis notebooks
-    ├── app/
-    │   ├── home.py                 # Streamlit dashboard
-    │   └── utils.py                # Utility functions
-    ├── tests/                      # Unit tests
-    ├── requirements.txt            # Dependencies
-    └── Dockerfile                  # Container definition
+    ├── accuracy_plot.png           # Training accuracy visualization
+    ├── loss_plot.png               # Training loss visualization
+    ├── dl_raga_classifier_core_collab.ipynb  # Jupyter notebook with core model
+    ├── frontend.py                 # Streamlit UI implementation
+    ├── main.py                     # Main program entry point
+    ├── preprocess.py               # Dataset preprocessing script
+    ├── requirements.txt            # Project dependencies
+    ├── README.md                   # Project documentation
+    └── LICENSE                     # License information
     ```
     
     ### Instructions
     
     1. **Setup Environment**:
        ```bash
+       # Create virtual environment with Python ≤ 11
+       python -m venv venv
+       
+       # Activate virtual environment
+       # On Windows
+       venv\\Scripts\\activate
+       # On macOS/Linux
+       source venv/bin/activate
+       
+       # Install dependencies
        pip install -r requirements.txt
        ```
     
-    2. **Run Preprocessing**:
+    2. **Data Preparation**:
        ```bash
-       python -m src.preprocessing
+       # Place your raga audio files in a data folder structure:
+       # data/raw/Bhairav/
+       # data/raw/Yaman/
+       # etc.
+       
+       # Run preprocessing to segment audio files
+       python preprocess.py
        ```
     
-    3. **Train Model**:
+    3. **Model Training**:
        ```bash
-       python -m src.training
+       # Train the raga classification model
+       python main.py --mode train
        ```
     
     4. **Launch Dashboard**:
        ```bash
-       streamlit run app/home.py
+       # Start the Streamlit application
+       streamlit run frontend.py
        ```
     
-    5. **Docker Deployment**:
+    5. **Inference**:
        ```bash
-       docker build -t raga-classification .
-       docker run -p 8501:8501 raga-classification
+       # For inference on new audio files
+       python main.py --mode predict --input path/to/audio.mp3
        ```
     
-    ### Model Export
+    ### Model Usage
     
-    The trained model is saved in HDF5 format and can be used for inference:
+    The trained model can be loaded and used for inference in your own Python code:
     
     ```python
     import tensorflow as tf
+    import librosa
+    import numpy as np
     
     # Load the model
     model = tf.keras.models.load_model('models/raga_model.h5')
-    
-    # Process audio file
-    import librosa
-    import numpy as np
     
     def predict_raga(audio_path):
         # Load audio
@@ -341,7 +354,6 @@ with tab3:
         return ragas[raga_index]
     ```
     """)
-
 # Footer
 st.markdown("---")
 st.markdown("""
