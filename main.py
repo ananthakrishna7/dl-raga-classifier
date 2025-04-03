@@ -19,7 +19,7 @@ SAMPLE_RATE = 22050
 
 def init_process_raga_folder(raga_name, raga_path):
     """Processes all MP3 files in a given raga folder."""
-    os.makedirs(OUTPUT_FOLDER)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     output_raga_path = os.path.join(OUTPUT_FOLDER, raga_name)
     os.makedirs(output_raga_path, exist_ok=True)
     
@@ -143,13 +143,13 @@ def create_model(input_shape, num_classes):
 
     # Reshape for LSTM layers
     model.add(layers.Flatten())
-   
+    model.add(layers.Reshape((12, 5168)))  # Reshape to (time_steps, features, channels)
     # model.add(layers.Permute((2, 1)))  # Permute the dimensions for LSTM input
 
     # # # Add LSTM layers
-    # model.add(layers.LSTM(64, return_sequences=True))
-    # model.add(layers.LSTM(64, return_sequences=True))
-    # model.add(layers.LSTM(32))
+    model.add(layers.LSTM(64, return_sequences=True))
+    model.add(layers.LSTM(64, return_sequences=True))
+    model.add(layers.LSTM(32))
 
     # Fully connected layers
     model.add(layers.Dense(128, activation='relu'))
