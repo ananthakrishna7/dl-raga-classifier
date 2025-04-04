@@ -587,71 +587,7 @@ if model is not None:
                 st.info(f"Training still improving (Avg change: {avg_change:.4f})")
                 st.markdown("**Consider training for more epochs**")
         
-        col1, col2 = st.columns([1, 1])
         
-        with col1:
-            # Upload audio file
-            st.markdown("### Test with Your Own Audio")
-            uploaded_file = st.file_uploader("Upload an audio file (MP3/WAV)", type=["mp3", "wav"])
-            
-            if uploaded_file is not None:
-                # Predict on uploaded file
-                st.info("Analyzing audio...")
-                fig, top_ragas, top_probs, predicted_class = predict_and_visualize(model, uploaded_file, class_names)
-                
-                if fig is not None:
-                    st.pyplot(fig)
-                    
-                    # Show prediction summary
-                    if predicted_class is not None and predicted_class < len(class_names):
-                        st.markdown(f"**Predicted Raga:** {class_names[predicted_class]} ({top_probs[0]:.1%} confidence)")
-        
-        with col2:
-            # Sample testing section
-            st.markdown("### Batch Testing")
-            
-            # Generate sample test results
-            n_samples = st.slider("Number of test samples", 5, min(50, len(y_test)), 10)
-            
-            if st.button("Run Batch Test"):
-                # Select random samples
-                batch_indices = np.random.choice(len(y_test), n_samples, replace=False)
-                
-                if hasattr(data, 'chromagrams'):
-                    # If we have actual test data
-                    batch_X = X_test[batch_indices]
-                    batch_y = y_test[batch_indices]
-                    
-                    # Make predictions
-                    with st.spinner("Running batch test..."):
-                        batch_preds = model.predict(batch_X)
-                        batch_pred_classes = np.argmax(batch_preds, axis=1)
-                    
-                    # Display results
-                    batch_results = []
-                    for i in range(n_samples):
-                        true_raga = class_names[batch_y[i]] if batch_y[i] < len(class_names) else "Unknown"
-                        pred_raga = class_names[batch_pred_classes[i]] if batch_pred_classes[i] < len(class_names) else "Unknown"
-                        confidence = batch_preds[i][batch_pred_classes[i]]
-                        correct = batch_pred_classes[i] == batch_y[i]
-                        
-                        batch_results.append({
-                            "Sample": i+1,
-                            "True Raga": true_raga,
-                            "Predicted": pred_raga,
-                            "Confidence": f"{confidence:.1%}",
-                            "Correct": "✓" if correct else "✗"
-                        })
-                    
-                    results_df = pd.DataFrame(batch_results)
-                    st.dataframe(results_df, use_container_width=True)
-                    
-                    # Show batch accuracy
-                    batch_accuracy = np.mean(batch_pred_classes == batch_y)
-                    st.metric("Batch Accuracy", f"{batch_accuracy:.1%}")
-                else:
-                    st.warning("Test data not available for batch testing")
-
 else:
     st.error("Failed to load the model. Please check if 'raga_model5.keras' exists in the root directory.")
 

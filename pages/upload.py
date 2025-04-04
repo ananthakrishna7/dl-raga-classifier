@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import json
 
 # Path to preprocessed audio files
-PREPROCESSED_DIR = "D:/dl-raga-classifier/preprocessed"
+PREPROCESSED_DIR = "./preprocessed"
 
 # Load Raga mappings (Assuming a JSON file with mappings exists)
 RAGA_MAPPING_FILE = "raga_mapping.json"
