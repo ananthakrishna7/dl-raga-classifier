@@ -17,7 +17,7 @@ from PIL import Image
 @st.cache_resource
 def load_model_and_metrics():
     try:
-        model = keras.models.load_model("raga_model.h5")
+        model = keras.models.load_model("raga_model5.keras")
         data = np.load("chromagrams.npz", allow_pickle=True)
         return model, data
     except Exception as e:
