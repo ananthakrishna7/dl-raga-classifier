@@ -526,66 +526,62 @@ if model is not None:
         
         # Load training history
         training_history = load_training_history()
+                
+        # Plot learning curves
+        learning_fig = plot_learning_curves(training_history)
+        st.pyplot(learning_fig)
+            
+        st.markdown("### Training Analysis")
         
-        col1, col2 = st.columns([3, 1])
+        # Calculate metrics
+        final_train_acc = training_history['accuracy'][-1]
+        final_val_acc = training_history['val_accuracy'][-1]
+        final_train_loss = training_history['loss'][-1]
+        final_val_loss = training_history['val_loss'][-1]
         
-        with col1:
-            # Plot learning curves
-            learning_fig = plot_learning_curves(training_history)
-            st.pyplot(learning_fig)
-            
-        with col2:
-            st.markdown("### Training Analysis")
-            
-            # Calculate metrics
-            final_train_acc = training_history['accuracy'][-1]
-            final_val_acc = training_history['val_accuracy'][-1]
-            final_train_loss = training_history['loss'][-1]
-            final_val_loss = training_history['val_loss'][-1]
-            
-            overfitting = final_val_loss / final_train_loss
-            
-            # Display metrics
-            st.markdown(f"**Final Training Accuracy:** {final_train_acc:.1%}")
-            st.markdown(f"**Final Validation Accuracy:** {final_val_acc:.1%}")
-            st.markdown(f"**Final Training Loss:** {final_train_loss:.3f}")
-            st.markdown(f"**Final Validation Loss:** {final_val_loss:.3f}")
-            
-            # Overfitting assessment
-            st.markdown("### Overfitting Assessment")
-            
-            if overfitting > 1.3:
-                st.warning(f"Potential overfitting (Loss ratio: {overfitting:.2f})")
-                st.markdown("""
-                **Recommendations:**
-                - Increase dropout rate
-                - Add regularization
-                - Collect more training data
-                - Use data augmentation
-                """)
-            elif overfitting > 1.1:
-                st.info(f"Slight overfitting (Loss ratio: {overfitting:.2f})")
-                st.markdown("""
-                **Recommendations:**
-                - Consider early stopping
-                - Mild regularization
-                """)
-            else:
-                st.success(f"No significant overfitting (Loss ratio: {overfitting:.2f})")
-            
-            # Convergence analysis
-            st.markdown("### Convergence Analysis")
-            
-            # Calculate if training has converged
-            last_5_val_loss = training_history['val_loss'][-5:]
-            loss_diff = np.abs(np.diff(last_5_val_loss))
-            avg_change = np.mean(loss_diff)
-            
-            if avg_change < 0.01:
-                st.success(f"Training has converged (Avg change: {avg_change:.4f})")
-            else:
-                st.info(f"Training still improving (Avg change: {avg_change:.4f})")
-                st.markdown("**Consider training for more epochs**")
+        overfitting = final_val_loss / final_train_loss
+        
+        # Display metrics
+        st.markdown(f"**Final Training Accuracy:** {final_train_acc:.1%}")
+        st.markdown(f"**Final Validation Accuracy:** {final_val_acc:.1%}")
+        st.markdown(f"**Final Training Loss:** {final_train_loss:.3f}")
+        st.markdown(f"**Final Validation Loss:** {final_val_loss:.3f}")
+        
+        # Overfitting assessment
+        st.markdown("### Overfitting Assessment")
+        
+        if overfitting > 1.3:
+            st.warning(f"Potential overfitting (Loss ratio: {overfitting:.2f})")
+            st.markdown("""
+            **Recommendations:**
+            - Increase dropout rate
+            - Add regularization
+            - Collect more training data
+            - Use data augmentation
+            """)
+        elif overfitting > 1.1:
+            st.info(f"Slight overfitting (Loss ratio: {overfitting:.2f})")
+            st.markdown("""
+            **Recommendations:**
+            - Consider early stopping
+            - Mild regularization
+            """)
+        else:
+            st.success(f"No significant overfitting (Loss ratio: {overfitting:.2f})")
+        
+        # Convergence analysis
+        st.markdown("### Convergence Analysis")
+        
+        # Calculate if training has converged
+        last_5_val_loss = training_history['val_loss'][-5:]
+        loss_diff = np.abs(np.diff(last_5_val_loss))
+        avg_change = np.mean(loss_diff)
+        
+        if avg_change < 0.01:
+            st.success(f"Training has converged (Avg change: {avg_change:.4f})")
+        else:
+            st.info(f"Training still improving (Avg change: {avg_change:.4f})")
+            st.markdown("**Consider training for more epochs**")
         
         
 else:
