@@ -7,6 +7,8 @@ import librosa.display
 import plotly.graph_objects as go
 import plotly.express as px
 from PIL import Image
+import tensorflow as tf
+import os
 
 # Page configuration
 st.set_page_config(
@@ -14,6 +16,64 @@ st.set_page_config(
     page_icon="🎵",
     layout="wide"
 )
+
+# Load the model
+try:
+    model = tf.keras.models.load_model('raga_model5.keras')
+    model_loaded = True
+    # Extract model information
+    model_summary = []
+    model.summary(print_fn=lambda x: model_summary.append(x))
+    model_summary = '\n'.join(model_summary)
+    
+    # Extract layer information
+    layers_info = []
+    layer_types = {}
+    params_count = 0
+    
+    for layer in model.layers:
+        layer_name = layer.__class__.__name__
+        if layer_name in layer_types:
+            layer_types[layer_name] += 1
+        else:
+            layer_types[layer_name] = 1
+        
+        # Use get_output_shape_at() or .output.shape instead of accessing output_shape attribute
+        try:
+            # This is safer as it handles the actual tensor shape
+            output_shape = str(layer.output.shape)
+        except:
+            # Fallback method if the above doesn't work
+            try:
+                output_shape = str(layer.get_output_at(0).shape)
+            except:
+                output_shape = "Shape not available"
+        
+        params = layer.count_params()
+        params_count += params
+        
+        layers_info.append({
+            "Layer Type": layer_name,
+            "Output Shape": output_shape,
+            "Parameters": str(params)
+        })
+    
+    # Get number of classes from output layer - safer approach
+    try:
+        num_classes = model.layers[-1].output.shape[-1]
+    except:
+        try:
+            num_classes = model.output.shape[-1]  # Using model's output shape directly
+        except:
+            num_classes = "Unknown"
+except Exception as e:
+    st.error(f"Error loading model: {e}")
+    model_loaded = False
+    model_summary = "Model could not be loaded."
+    layers_info = []
+    layer_types = {}
+    params_count = 0
+    num_classes = 0
 
 # Header section
 st.markdown("<h1 style='text-align: center;'>Raga Classification System</h1>", unsafe_allow_html=True)
@@ -28,7 +88,7 @@ with st.expander("📚 Project Documentation", expanded=True):
     
     1. **Audio Preprocessing**: Converting MP3 files into 30-second segments and extracting chromagrams
     2. **Feature Engineering**: Transforming audio data into chromatic representations
-    3. **Model Architecture**: Using a hybrid CNN-LSTM neural network for classification
+    3. **Model Architecture**: Using a hybrid neural network for classification
     4. **Training & Evaluation**: Training on a dataset of ragas with validation and testing
     
     ### Key Features
@@ -36,18 +96,18 @@ with st.expander("📚 Project Documentation", expanded=True):
     - **Multi-Raga Classification**: Supports identification of numerous raga types
     - **Segment-Based Analysis**: Processes audio in 30-second windows for consistent analysis
     - **Chromagram Feature Extraction**: Utilizes chromatic information crucial for raga identification
-    - **Deep Learning Model**: Employs a sophisticated CNN-LSTM architecture
+    - **Deep Learning Model**: Employs a sophisticated architecture optimized for music classification
     
     ### Technical Documentation
     
-    The preprocessing pipeline takes raw MP3 files, segments them into 30-second clips, and extracts chromagrams using Librosa's chroma_stft function. These features are then fed into a CNN-LSTM model for classification.
+    The preprocessing pipeline takes raw MP3 files, segments them into 30-second clips, and extracts chromagrams using Librosa's chroma_stft function. These features are then fed into the neural network model for classification.
     
     ```python
     # Sample code for chromagram extraction
     chroma = librosa.feature.chroma_stft(y=segment_audio, sr=SAMPLE_RATE, n_chroma=12, n_fft=4096)
     ```
     
-    The model architecture combines convolutional layers for feature extraction and LSTM layers for sequence modeling, making it well-suited for music pattern recognition.
+    The model architecture is designed for music pattern recognition, optimized for the specific challenges of raga classification.
     """)
 
 # Tabs for different sections
@@ -56,51 +116,58 @@ tab1, tab2, tab3 = st.tabs(["Architecture", "Data Processing", "Implementation"]
 with tab1:
     st.markdown("## Model Architecture")
     
-    # Model architecture visualization
-    architecture_data = pd.DataFrame({
-        "Layer Type": ["Input", "Conv2D", "BatchNorm", "Conv2D", "BatchNorm", "MaxPooling2D", 
-                      "Conv2D", "BatchNorm", "Conv2D", "BatchNorm", "MaxPooling2D", 
-                      "Conv2D", "BatchNorm", "Flatten", "Reshape", "LSTM", "LSTM", "LSTM", 
-                      "Dense", "Dropout", "Dense (Softmax)"],
-        "Output Shape": ["(12, 1292, 1)", "(12, 1292, 32)", "(12, 1292, 32)", "(12, 1292, 32)", "(12, 1292, 32)",
-                        "(6, 646, 32)", "(6, 646, 64)", "(6, 646, 64)", "(6, 646, 64)", "(6, 646, 64)",
-                        "(3, 323, 64)", "(3, 323, 64)", "(3, 323, 64)", "(62016)", "(12, 5168)", 
-                        "(12, 64)", "(12, 64)", "(32)", "(128)", "(128)", "(95)"],
-        "Parameters": ["0", "320", "128", "9,248", "128", "0", "18,496", "256", "36,928", "256", 
-                      "0", "36,928", "256", "0", "0", "1,327,104", "33,024", "12,416", "4,224", "0", "12,255"]
-    })
-    
-    st.dataframe(architecture_data, use_container_width=True)
-    
-    # Model layers visualization
-    st.markdown("### Model Layer Distribution")
-    layers = ["Input", "Conv2D", "BatchNorm", "MaxPool", "LSTM", "Dense", "Output"]
-    layer_counts = [1, 5, 5, 2, 3, 2, 1]
-    
-    fig = px.bar(
-        x=layers, 
-        y=layer_counts,
-        labels={"x": "Layer Type", "y": "Count"},
-        color=layers,
-        color_discrete_sequence=px.colors.qualitative.Plotly
-    )
-    fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("""
-    **Architecture Overview:**
-    - **Input**: Chromagram representation (12×1292×1)
-    - **Feature Extraction**: Multiple Conv2D layers with BatchNorm
-    - **Temporal Processing**: 3 LSTM layers for sequential pattern recognition
-    - **Classification**: Fully connected layers with dropout for regularization
-    - **Output**: 95 raga classes with softmax activation
-    
-    **Key Architectural Benefits:**
-    - The convolutional layers extract local patterns from the chromagram
-    - BatchNorm improves training stability and speed
-    - LSTM layers capture the temporal progression of notes essential to raga identification
-    - Dropout (0.5) prevents overfitting on the training dataset
-    """)
+    if model_loaded:
+        # Display model summary
+        st.markdown("### Model Summary")
+        st.code(model_summary, language="")
+        
+        # Model architecture visualization
+        architecture_data = pd.DataFrame(layers_info)
+        
+        st.markdown("### Layer Details")
+        st.dataframe(architecture_data, use_container_width=True)
+        
+        # Model layers visualization
+        st.markdown("### Model Layer Distribution")
+        layer_names = list(layer_types.keys())
+        layer_counts = list(layer_types.values())
+        
+        fig = px.bar(
+            x=layer_names, 
+            y=layer_counts,
+            labels={"x": "Layer Type", "y": "Count"},
+            color=layer_names,
+            color_discrete_sequence=px.colors.qualitative.Plotly
+        )
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown(f"""
+        **Architecture Overview:**
+        - **Total Parameters**: {params_count:,}
+        - **Output Classes**: {num_classes}
+        
+        **Key Architectural Features:**
+        - The model architecture is tailored for audio classification tasks
+        - The layer composition is optimized for extracting musical patterns
+        - The final layer enables classification across {num_classes} different ragas
+        """)
+    else:
+        st.warning("Model could not be loaded. Displaying placeholder information instead.")
+        # Display placeholder information
+        st.markdown("""
+        **Note**: The model information shown below is placeholder data. 
+        Please ensure the model file 'raga_model5.keras' is available in the project root directory.
+        """)
+        
+        # Placeholder architecture visualization
+        architecture_data = pd.DataFrame({
+            "Layer Type": ["Input", "Conv2D", "BatchNorm", "MaxPooling2D", "LSTM", "Dense"],
+            "Output Shape": ["Sample Input Shape", "Sample Shape", "Sample Shape", "Sample Shape", "Sample Shape", "Output Shape"],
+            "Parameters": ["0", "Sample", "Sample", "0", "Sample", "Sample"]
+        })
+        
+        st.dataframe(architecture_data, use_container_width=True)
 
 with tab2:
     st.markdown("## Data Processing Pipeline")
@@ -170,23 +237,63 @@ with tab2:
        - Final processed data is cached to avoid redundant processing
     """)
     
-    # Display sample statistics
-    st.markdown("### Dataset Statistics")
-    data_stats = pd.DataFrame({
-        "Metric": ["Total Ragas", "Total Recordings", "Segments Created", "Feature Dimension", "Segment Duration", "Sample Rate", "Training Samples", "Validation Samples", "Test Samples"],
-        "Value": ["95", "500+", "2000+", "(12, 1292)", "30 seconds", "22050 Hz", "1600", "200", "200"]
-    })
-    st.dataframe(data_stats, use_container_width=True)
+    # Display dataset statistics
+    if model_loaded:
+        st.markdown("### Dataset Statistics")
+        data_stats = pd.DataFrame({
+            "Metric": ["Total Ragas", "Feature Dimension", "Segment Duration", "Sample Rate"],
+            "Value": [f"{num_classes}", "Based on model input shape", "30 seconds", "22050 Hz"]
+        })
+    else:
+        st.markdown("### Dataset Statistics")
+        data_stats = pd.DataFrame({
+            "Metric": ["Total Ragas", "Feature Dimension", "Segment Duration", "Sample Rate"],
+            "Value": ["N/A (Model not loaded)", "N/A", "30 seconds", "22050 Hz"]
+        })
     
     # Sample data visualization
     st.markdown("### Sample Chromagram")
-    # Generate a sample chromagram for visualization
-    y = np.sin(2 * np.pi * np.arange(0, 22050*5) * 440 / 22050)
-    sample_chroma = librosa.feature.chroma_stft(y=y, sr=22050, n_chroma=12, n_fft=4096)
-    
+
+    # Find a sample audio file from the preprocessed folder
+    preprocessed_dir = "preprocessed"
+    sample_audio_path = None
+
+    if os.path.exists(preprocessed_dir):
+        # Look for the first audio file in the preprocessed directories
+        for root, dirs, files in os.walk(preprocessed_dir):
+            for file in files:
+                if file.endswith(('.mp3', '.wav')):
+                    sample_audio_path = os.path.join(root, file)
+                    st.info(f"Using sample audio: {os.path.relpath(sample_audio_path)}")
+                    break
+            if sample_audio_path:
+                break
+
+    # Generate chromagram from real audio file or fall back to synthetic if no files found
+    if sample_audio_path:
+        try:
+            # Load audio file
+            y, sr = librosa.load(sample_audio_path, sr=22050, duration=30)
+            # Extract chromagram
+            sample_chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_chroma=12, n_fft=4096)
+            source_text = f"Chromagram from {os.path.basename(sample_audio_path)}"
+        except Exception as e:
+            st.warning(f"Error loading audio file: {e}")
+            # Fall back to synthetic audio
+            y = np.sin(2 * np.pi * np.arange(0, 22050*5) * 440 / 22050)
+            sample_chroma = librosa.feature.chroma_stft(y=y, sr=22050, n_chroma=12, n_fft=4096)
+            source_text = "Synthetic chromagram (no audio file could be processed)"
+    else:
+        # If no preprocessed files are found, use synthetic audio
+        st.warning("No audio files found in the preprocessed folder. Using synthetic audio instead.")
+        y = np.sin(2 * np.pi * np.arange(0, 22050*5) * 440 / 22050)
+        sample_chroma = librosa.feature.chroma_stft(y=y, sr=22050, n_chroma=12, n_fft=4096)
+        source_text = "Synthetic chromagram (no audio files found)"
+
+    # Display the chromagram
     fig, ax = plt.subplots(figsize=(10, 4))
     img = librosa.display.specshow(sample_chroma, y_axis='chroma', x_axis='time', ax=ax)
-    ax.set_title('Chromagram Representation')
+    ax.set_title(f'Chromagram Representation - {source_text}')
     fig.colorbar(img, ax=ax)
     st.pyplot(fig)
 
@@ -223,6 +330,31 @@ with tab3:
     fig.update_layout(height=400)
     st.plotly_chart(fig, use_container_width=True)
     
+    # Add model metrics visualization if available
+    if model_loaded:
+        # Check if the model has history attribute (indicates it has training metrics)
+        if hasattr(model, 'history') and model.history is not None:
+            st.markdown("### Training Metrics")
+            
+            # Extract history data
+            history = model.history.history
+            
+            if 'accuracy' in history and 'val_accuracy' in history:
+                # Create accuracy plot
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(y=history['accuracy'], name='Training Accuracy'))
+                fig.add_trace(go.Scatter(y=history['val_accuracy'], name='Validation Accuracy'))
+                fig.update_layout(title='Model Accuracy', xaxis_title='Epoch', yaxis_title='Accuracy')
+                st.plotly_chart(fig, use_container_width=True)
+            
+            if 'loss' in history and 'val_loss' in history:
+                # Create loss plot
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(y=history['loss'], name='Training Loss'))
+                fig.add_trace(go.Scatter(y=history['val_loss'], name='Validation Loss'))
+                fig.update_layout(title='Model Loss', xaxis_title='Epoch', yaxis_title='Loss')
+                st.plotly_chart(fig, use_container_width=True)
+    
     # Code execution timeline
     st.markdown("### Execution Timeline")
     
@@ -256,19 +388,17 @@ with tab3:
     
     ```
     raga_classification/
-    ├── data/                       # Not included in repository due to size
+    ├── raga/                       # Not included in repository due to size
     │   ├── raw/                    # Raw MP3 files by raga
     │   │   ├── Bhairav/
     │   │   ├── Yaman/
     │   │   └── ...
     │   ├── processed/              # Segmented MP3 files
-    │   └── features/               # Extracted features
-    ├── models/
-    │   ├── raga_model.h5           # Trained model
-    │   └── checkpoints/            # Training checkpoints
-    ├── accuracy_plot.png           # Training accuracy visualization
-    ├── loss_plot.png               # Training loss visualization
-    ├── dl_raga_classifier_core_collab.ipynb  # Jupyter notebook with core model
+    ├── pages/                      # Streamlit pages folder
+        ├── home.py
+        ├── model_metrics.py
+        ├── upload.py 
+    ├── raga_model5.keras           # Trained model
     ├── frontend.py                 # Streamlit UI implementation
     ├── main.py                     # Main program entry point
     ├── preprocess.py               # Dataset preprocessing script
@@ -333,7 +463,7 @@ with tab3:
     import numpy as np
     
     # Load the model
-    model = tf.keras.models.load_model('models/raga_model.h5')
+    model = tf.keras.models.load_model('raga_model5.keras')
     
     def predict_raga(audio_path):
         # Load audio
@@ -342,18 +472,25 @@ with tab3:
         # Extract chromagram
         chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_chroma=12, n_fft=4096)
         
-        # Reshape for model input
-        chroma = np.expand_dims(chroma, axis=-1)
+        # Reshape for model input (adjust based on your model's input shape)
+        if len(model.input_shape) == 4:  # For CNN models expecting [batch, height, width, channels]
+            chroma = np.expand_dims(chroma, axis=-1)
+        
+        # Ensure correct input shape
+        # You may need to adjust this based on your actual model's input requirements
+        input_shape = model.input_shape[1:]
+        # Resize if necessary (this is just an example, actual implementation depends on your model)
         
         # Predict
         prediction = model.predict(np.expand_dims(chroma, axis=0))
         raga_index = np.argmax(prediction[0])
         
-        # Get raga name (replace with your raga mapping)
-        ragas = ['Bhairav', 'Yaman', 'Bhairavi', '...']
-        return ragas[raga_index]
+        # Note: You'll need to provide a mapping from index to raga name
+        # This could be stored separately or derived from your training data folder structure
+        return f"Predicted Raga Index: {raga_index}"
     ```
     """)
+
 # Footer
 st.markdown("---")
 st.markdown("""
