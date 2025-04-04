@@ -12,6 +12,7 @@ import librosa
 import librosa.display
 import io
 import base64
+import json
 from PIL import Image
 import os
 
@@ -104,28 +105,74 @@ def plot_roc_curves(y_true, y_score, class_names, top_n=5):
 
 # Function to plot learning curves
 def plot_learning_curves(history):
-    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+    # Create interactive plotly figure for learning curves
+    fig = go.Figure()
     
-    # Plot training & validation accuracy
-    axes[0].plot(history['accuracy'], label='Training Accuracy')
-    axes[0].plot(history['val_accuracy'], label='Validation Accuracy')
-    axes[0].set_title('Model Accuracy')
-    axes[0].set_ylabel('Accuracy')
-    axes[0].set_xlabel('Epoch')
-    axes[0].legend(loc='lower right')
-    axes[0].grid(True, linestyle='--', alpha=0.7)
+    # Add traces for accuracy
+    fig.add_trace(go.Scatter(
+        x=list(range(1, len(history['accuracy']) + 1)),
+        y=history['accuracy'],
+        mode='lines+markers',
+        name='Training Accuracy',
+        line=dict(color='#636EFA', width=2),
+        marker=dict(size=8)
+    ))
     
-    # Plot training & validation loss
-    axes[1].plot(history['loss'], label='Training Loss')
-    axes[1].plot(history['val_loss'], label='Validation Loss')
-    axes[1].set_title('Model Loss')
-    axes[1].set_ylabel('Loss')
-    axes[1].set_xlabel('Epoch')
-    axes[1].legend(loc='upper right')
-    axes[1].grid(True, linestyle='--', alpha=0.7)
+    fig.add_trace(go.Scatter(
+        x=list(range(1, len(history['val_accuracy']) + 1)),
+        y=history['val_accuracy'],
+        mode='lines+markers',
+        name='Validation Accuracy',
+        line=dict(color='#EF553B', width=2),
+        marker=dict(size=8)
+    ))
     
-    plt.tight_layout()
-    return fig
+    # Update layout for accuracy
+    fig.update_layout(
+        title='Model Accuracy Over Epochs',
+        xaxis_title='Epoch',
+        yaxis_title='Accuracy',
+        yaxis=dict(tickformat='.0%'),
+        hovermode='x unified',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=400
+    )
+    
+    # Create second figure for loss
+    fig2 = go.Figure()
+    
+    # Add traces for loss
+    fig2.add_trace(go.Scatter(
+        x=list(range(1, len(history['loss']) + 1)),
+        y=history['loss'],
+        mode='lines+markers',
+        name='Training Loss',
+        line=dict(color='#636EFA', width=2),
+        marker=dict(size=8)
+    ))
+    
+    fig2.add_trace(go.Scatter(
+        x=list(range(1, len(history['val_loss']) + 1)),
+        y=history['val_loss'],
+        mode='lines+markers',
+        name='Validation Loss',
+        line=dict(color='#EF553B', width=2),
+        marker=dict(size=8)
+    ))
+    
+    # Update layout for loss
+    fig2.update_layout(
+        title='Model Loss Over Epochs',
+        xaxis_title='Epoch',
+        yaxis_title='Loss',
+        hovermode='x unified',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=400
+    )
+    
+    return fig, fig2
 
 # Function to generate classification report as DataFrame
 def get_classification_report(y_true, y_pred, class_names):
@@ -521,73 +568,141 @@ if model is not None:
         error_df = pd.DataFrame(error_data)
         st.dataframe(error_df)
     
-    with tab4:
-        st.markdown("## Learning Curves")
-        
-        # Load training history
-        training_history = load_training_history()
-        
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            # Plot learning curves
-            learning_fig = plot_learning_curves(training_history)
-            st.pyplot(learning_fig)
+    # Replace the tab4 content in model_metrics.py with this code
+        with tab4:
+            st.markdown("## Learning Curves")
             
-        with col2:
-            st.markdown("### Training Analysis")
+            # Load training history
+            training_history = load_training_history()
             
-            # Calculate metrics
-            final_train_acc = training_history['accuracy'][-1]
-            final_val_acc = training_history['val_accuracy'][-1]
-            final_train_loss = training_history['loss'][-1]
-            final_val_loss = training_history['val_loss'][-1]
+            # Plot interactive learning curves
+            accuracy_fig, loss_fig = plot_learning_curves(training_history)
             
-            overfitting = final_val_loss / final_train_loss
+            # Create two columns
+            col1, col2 = st.columns([3, 1])
             
-            # Display metrics
-            st.markdown(f"**Final Training Accuracy:** {final_train_acc:.1%}")
-            st.markdown(f"**Final Validation Accuracy:** {final_val_acc:.1%}")
-            st.markdown(f"**Final Training Loss:** {final_train_loss:.3f}")
-            st.markdown(f"**Final Validation Loss:** {final_val_loss:.3f}")
+            with col1:
+                # Display accuracy chart with tabs
+                curve_tabs = st.tabs(["Accuracy", "Loss"])
+                
+                with curve_tabs[0]:
+                    st.plotly_chart(accuracy_fig, use_container_width=True)
+                    
+                    # Add data table with exact values
+                    st.markdown("### Accuracy Data Points")
+                    accuracy_data = pd.DataFrame({
+                        'Epoch': list(range(1, len(training_history['accuracy']) + 1)),
+                        'Training Accuracy': [f"{acc:.1%}" for acc in training_history['accuracy']],
+                        'Validation Accuracy': [f"{acc:.1%}" for acc in training_history['val_accuracy']]
+                    })
+                    st.dataframe(accuracy_data, use_container_width=True, hide_index=True)
+                
+                with curve_tabs[1]:
+                    st.plotly_chart(loss_fig, use_container_width=True)
+                    
+                    # Add data table with exact values
+                    st.markdown("### Loss Data Points")
+                    loss_data = pd.DataFrame({
+                        'Epoch': list(range(1, len(training_history['loss']) + 1)),
+                        'Training Loss': [f"{loss:.4f}" for loss in training_history['loss']],
+                        'Validation Loss': [f"{loss:.4f}" for loss in training_history['val_loss']]
+                    })
+                    st.dataframe(loss_data, use_container_width=True, hide_index=True)
+                    
+            with col2:
+                st.markdown("### Training Analysis")
+                
+                # Calculate metrics
+                final_train_acc = training_history['accuracy'][-1]
+                final_val_acc = training_history['val_accuracy'][-1]
+                final_train_loss = training_history['loss'][-1]
+                final_val_loss = training_history['val_loss'][-1]
+                
+                overfitting = final_val_loss / final_train_loss
+                
+                # Display metrics
+                st.markdown(f"**Final Training Accuracy:** {final_train_acc:.1%}")
+                st.markdown(f"**Final Validation Accuracy:** {final_val_acc:.1%}")
+                st.markdown(f"**Final Training Loss:** {final_train_loss:.3f}")
+                st.markdown(f"**Final Validation Loss:** {final_val_loss:.3f}")
+                
+                # Overfitting assessment
+                st.markdown("### Overfitting Assessment")
+                
+                if overfitting > 1.3:
+                    st.warning(f"Potential overfitting (Loss ratio: {overfitting:.2f})")
+                    st.markdown("""
+                    **Recommendations:**
+                    - Increase dropout rate
+                    - Add regularization
+                    - Collect more training data
+                    - Use data augmentation
+                    """)
+                elif overfitting > 1.1:
+                    st.info(f"Slight overfitting (Loss ratio: {overfitting:.2f})")
+                    st.markdown("""
+                    **Recommendations:**
+                    - Consider early stopping
+                    - Mild regularization
+                    """)
+                else:
+                    st.success(f"No significant overfitting (Loss ratio: {overfitting:.2f})")
+                
+                # Convergence analysis
+                st.markdown("### Convergence Analysis")
+                
+                # Calculate if training has converged
+                last_5_val_loss = training_history['val_loss'][-5:]
+                loss_diff = np.abs(np.diff(last_5_val_loss))
+                avg_change = np.mean(loss_diff)
+                
+                if avg_change < 0.01:
+                    st.success(f"Training has converged (Avg change: {avg_change:.4f})")
+                else:
+                    st.info(f"Training still improving (Avg change: {avg_change:.4f})")
+                    st.markdown("**Consider training for more epochs**")
+                    
+            # Add download buttons for the raw data
+            st.markdown("---")
+            st.markdown("### Download Training History Data")
             
-            # Overfitting assessment
-            st.markdown("### Overfitting Assessment")
+            # Convert history to CSV
+            csv_data = pd.DataFrame({
+                'Epoch': list(range(1, len(training_history['accuracy']) + 1)),
+                'Training_Accuracy': training_history['accuracy'],
+                'Validation_Accuracy': training_history['val_accuracy'],
+                'Training_Loss': training_history['loss'],
+                'Validation_Loss': training_history['val_loss']
+            })
             
-            if overfitting > 1.3:
-                st.warning(f"Potential overfitting (Loss ratio: {overfitting:.2f})")
-                st.markdown("""
-                **Recommendations:**
-                - Increase dropout rate
-                - Add regularization
-                - Collect more training data
-                - Use data augmentation
-                """)
-            elif overfitting > 1.1:
-                st.info(f"Slight overfitting (Loss ratio: {overfitting:.2f})")
-                st.markdown("""
-                **Recommendations:**
-                - Consider early stopping
-                - Mild regularization
-                """)
-            else:
-                st.success(f"No significant overfitting (Loss ratio: {overfitting:.2f})")
+            csv = csv_data.to_csv(index=False)
             
-            # Convergence analysis
-            st.markdown("### Convergence Analysis")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name="training_history.csv",
+                    mime="text/csv"
+                )
             
-            # Calculate if training has converged
-            last_5_val_loss = training_history['val_loss'][-5:]
-            loss_diff = np.abs(np.diff(last_5_val_loss))
-            avg_change = np.mean(loss_diff)
-            
-            if avg_change < 0.01:
-                st.success(f"Training has converged (Avg change: {avg_change:.4f})")
-            else:
-                st.info(f"Training still improving (Avg change: {avg_change:.4f})")
-                st.markdown("**Consider training for more epochs**")
-        
-        
+            with col2:
+                # Create JSON option
+                json_data = {
+                    'epoch': list(range(1, len(training_history['accuracy']) + 1)),
+                    'training_accuracy': training_history['accuracy'].tolist() if isinstance(training_history['accuracy'], np.ndarray) else training_history['accuracy'],
+                    'validation_accuracy': training_history['val_accuracy'].tolist() if isinstance(training_history['val_accuracy'], np.ndarray) else training_history['val_accuracy'],
+                    'training_loss': training_history['loss'].tolist() if isinstance(training_history['loss'], np.ndarray) else training_history['loss'],
+                    'validation_loss': training_history['val_loss'].tolist() if isinstance(training_history['val_loss'], np.ndarray) else training_history['val_loss'],
+                }
+                
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(json_data, indent=2),
+                    file_name="training_history.json",
+                    mime="application/json"
+                )
+                
 else:
     st.error("Failed to load the model. Please check if 'raga_model5.keras' exists in the root directory.")
 
