@@ -9,19 +9,36 @@ import seaborn as sns
 import tensorflow as tf
 from tensorflow import keras
 import librosa
+import librosa.display
 import io
 import base64
 from PIL import Image
+import os
 
 # Function to load model and metrics
 @st.cache_resource
 def load_model_and_metrics():
     try:
+        # Load the model
+        st.info("Loading model from raga_model5.keras...")
         model = keras.models.load_model("raga_model5.keras")
-        data = np.load("chromagrams.npz", allow_pickle=True)
+        
+        # Try to load the chromagrams data if available
+        try:
+            data = np.load("chromagrams.npz", allow_pickle=True)
+        except FileNotFoundError:
+            # Create a placeholder for the data if the file doesn't exist
+            st.warning("chromagrams.npz not found. Using sample data instead.")
+            # Create some dummy data for demonstration
+            data = {
+                'chromagrams': np.random.random((100, 12, 30)),  # Sample chromagrams
+                'labels': np.array(['Bhairav', 'Yaman', 'Bhairavi'] * 33 + ['Bhairav'])  # Sample labels
+            }
+            data = type('obj', (object,), data)  # Convert to namespace
+        
         return model, data
     except Exception as e:
-        st.error(f"Error loading model or data: {e}")
+        st.error(f"Error loading model: {e}")
         return None, None
 
 # Function to generate confusion matrix
@@ -174,6 +191,30 @@ def predict_and_visualize(model, audio_file, class_names):
         st.error(f"Error analyzing audio: {e}")
         return None, [], [], None
 
+# Function to load training history if available
+def load_training_history():
+    try:
+        if os.path.exists("training_history.npy"):
+            return np.load("training_history.npy", allow_pickle=True).item()
+        else:
+            st.warning("Training history file not found. Using sample data.")
+            # Generate sample training history
+            return {
+                'accuracy': [0.45, 0.58, 0.67, 0.72, 0.76, 0.79, 0.82, 0.84, 0.86, 0.87],
+                'val_accuracy': [0.41, 0.52, 0.60, 0.64, 0.67, 0.69, 0.71, 0.72, 0.73, 0.74],
+                'loss': [1.72, 1.35, 1.10, 0.92, 0.78, 0.67, 0.58, 0.52, 0.47, 0.43],
+                'val_loss': [1.85, 1.51, 1.28, 1.15, 1.05, 0.98, 0.92, 0.88, 0.85, 0.83]
+            }
+    except Exception as e:
+        st.error(f"Error loading training history: {e}")
+        # Return a fallback training history
+        return {
+            'accuracy': [0.4, 0.6, 0.8],
+            'val_accuracy': [0.35, 0.5, 0.65],
+            'loss': [1.5, 1.0, 0.5],
+            'val_loss': [1.6, 1.2, 0.7]
+        }
+
 # Page configuration
 st.set_page_config(
     page_title="Raga Classification - Model Metrics",
@@ -186,31 +227,60 @@ st.markdown("<h1 style='text-align: center;'>Raga Classification Model Metrics</
 st.markdown("<h3 style='text-align: center; color: #636EFA;'>Detailed Performance Analysis</h3>", unsafe_allow_html=True)
 
 # Load model and data
-model, data = load_model_and_metrics()
+placeholder = st.empty()
 
-if model is not None and data is not None:
-    # Extract data
-    X = data['chromagrams']
-    y = data['labels']
-    
-    # Create label encoder
-    from sklearn.preprocessing import LabelEncoder
-    le = LabelEncoder()
-    y_encoded = le.fit_transform(y)
-    class_names = le.classes_
-    
-    # Generate test predictions (using a portion of the data for demonstration)
-    test_size = min(500, len(X))  # Limit test size for performance
-    test_indices = np.random.choice(len(X), test_size, replace=False)
-    X_test = np.array(X[test_indices])
-    y_test = y_encoded[test_indices]
-    
-    # Add a channel dimension for the CNN
-    X_test = np.expand_dims(X_test, axis=-1)
-    
-    # Get predictions
-    y_pred_proba = model.predict(X_test)
-    y_pred = np.argmax(y_pred_proba, axis=1)
+with placeholder.container():
+    with st.spinner("Loading model and data..."):
+        model, data = load_model_and_metrics()
+
+placeholder.empty()  # This removes the spinner
+
+st.success("Model and data loaded successfully!")
+
+
+if model is not None:
+    # Extract data if available
+    if isinstance(data, dict) or isinstance(data, np.lib.npyio.NpzFile):
+        X = None
+        y = None
+        if "chromagrams" in data and "labels" in data:
+            X = data["chromagrams"]
+            y = data["labels"]
+        
+        # Create label encoder
+        from sklearn.preprocessing import LabelEncoder
+        le = LabelEncoder()
+        y_encoded = le.fit_transform(y)
+        class_names = le.classes_
+        
+        # Generate test predictions (using a portion of the data for demonstration)
+        test_size = min(500, len(X))  # Limit test size for performance
+        test_indices = np.random.choice(len(X), test_size, replace=False)
+        X_test = np.array(X[test_indices])
+        y_test = y_encoded[test_indices]
+        
+        # Add a channel dimension for the CNN if needed
+        if len(X_test.shape) == 3:  # If shape is (samples, features, time)
+            X_test = np.expand_dims(X_test, axis=-1)  # Make it (samples, features, time, channels)
+        
+        # Get predictions
+        with st.spinner("Generating predictions..."):
+            y_pred_proba = model.predict(X_test)
+            y_pred = np.argmax(y_pred_proba, axis=1)
+    else:
+        # If we don't have the chromagrams, extract class names from the model
+        # Get number of output classes from the model's last layer
+        num_classes = model.output_shape[1]
+        # Create generic class names
+        class_names = [f"Raga_{i}" for i in range(num_classes)]
+        st.warning("No test data available. Using generic class names and limited metrics.")
+        
+        # Create sample data for demonstration
+        y_test = np.random.randint(0, num_classes, 100)
+        y_pred = np.random.randint(0, num_classes, 100)
+        y_pred_proba = np.random.random((100, num_classes))
+        for i in range(100):
+            y_pred_proba[i] = y_pred_proba[i] / np.sum(y_pred_proba[i])
     
     # Create tabs for different metrics
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -222,231 +292,256 @@ if model is not None and data is not None:
     
     with tab1:
         st.markdown("## Model Architecture and Information")
+                
+        # Model summary
+        stringlist = []
+        model.summary(print_fn=lambda x: stringlist.append(x))
+        model_summary = "\n".join(stringlist)
+        st.code(model_summary, language="bash")
+            
+        # Model visualization
+        st.markdown("### Model Layers")
         
-        col1, col2 = st.columns([1, 1])
+        # Count layers by type
+        layer_types = {}
+        for layer in model.layers:
+            layer_type = layer.__class__.__name__
+            if layer_type in layer_types:
+                layer_types[layer_type] += 1
+            else:
+                layer_types[layer_type] = 1
         
-        with col1:
-            # Model summary
-            model_summary = []
-            model.summary(print_fn=lambda x: model_summary.append(x))
-            st.code("\n".join(model_summary), language="bash")
-            
-        with col2:
-            # Model visualization
-            st.markdown("### Model Layers")
-            
-            # Count layers by type
-            layer_types = {}
-            for layer in model.layers:
-                layer_type = layer.__class__.__name__
-                if layer_type in layer_types:
-                    layer_types[layer_type] += 1
-                else:
-                    layer_types[layer_type] = 1
-            
-            # Create a bar chart
-            fig = px.bar(
-                x=list(layer_types.keys()),
-                y=list(layer_types.values()),
-                labels={"x": "Layer Type", "y": "Count"},
-                title="Model Layer Distribution",
-                color=list(layer_types.keys()),
-                color_discrete_sequence=px.colors.qualitative.Bold
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Model complexity
-            st.markdown("### Model Complexity")
-            trainable_params = np.sum([np.prod(v.shape) for v in model.trainable_weights])
-            non_trainable_params = np.sum([np.prod(v.shape) for v in model.non_trainable_weights])
-            
-            complexity_data = pd.DataFrame({
-                "Metric": ["Total Parameters", "Trainable Parameters", "Non-trainable Parameters"],
-                "Value": [f"{trainable_params + non_trainable_params:,}", 
-                          f"{trainable_params:,}", 
-                          f"{non_trainable_params:,}"]
-            })
-            st.table(complexity_data)
+        # Create a bar chart
+        fig = px.bar(
+            x=list(layer_types.keys()),
+            y=list(layer_types.values()),
+            labels={"x": "Layer Type", "y": "Count"},
+            title="Model Layer Distribution",
+            color=list(layer_types.keys()),
+            color_discrete_sequence=px.colors.qualitative.Bold
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Model complexity
+        st.markdown("### Model Complexity")
+        trainable_params = np.sum([np.prod(v.shape) for v in model.trainable_weights])
+        non_trainable_params = np.sum([np.prod(v.shape) for v in model.non_trainable_weights])
+        
+        complexity_data = pd.DataFrame({
+            "Metric": ["Total Parameters", "Trainable Parameters", "Non-trainable Parameters"],
+            "Value": [f"{trainable_params + non_trainable_params:,}", 
+                        f"{trainable_params:,}", 
+                        f"{non_trainable_params:,}"]
+        })
+        st.table(complexity_data)
             
     with tab2:
         st.markdown("## Performance Metrics")
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            # Overall accuracy and loss
-            accuracy = np.mean(y_pred == y_test)
-            
-            # Top-K accuracy 
-            top3_accuracy = np.mean([y_test[i] in np.argsort(y_pred_proba[i])[-3:] for i in range(len(y_test))])
-            top5_accuracy = np.mean([y_test[i] in np.argsort(y_pred_proba[i])[-5:] for i in range(len(y_test))])
-            
-            metrics_data = pd.DataFrame({
-                "Metric": ["Test Accuracy", "Top-3 Accuracy", "Top-5 Accuracy"],
-                "Value": [f"{accuracy:.2%}", f"{top3_accuracy:.2%}", f"{top5_accuracy:.2%}"]
-            })
-            
-            st.table(metrics_data)
-            
-            # Classification report for top classes
-            st.markdown("### Detailed Metrics by Class")
-            top_classes = 10
-            report_df = get_classification_report(y_test, y_pred, class_names)
-            report_df = report_df.sort_values(by='support', ascending=False).head(top_classes)
-            
-            # Format the report for better readability
-            report_df['precision'] = report_df['precision'].map('{:.2%}'.format)
-            report_df['recall'] = report_df['recall'].map('{:.2%}'.format)
-            report_df['f1-score'] = report_df['f1-score'].map('{:.2%}'.format)
-            report_df['support'] = report_df['support'].astype(int)
-            
-            st.dataframe(report_df)
-            
-        with col2:
-            # ROC curves
-            st.markdown("### ROC Curves")
-            roc_fig = plot_roc_curves(y_test, y_pred_proba, class_names)
-            st.pyplot(roc_fig)
-            
-            # Performance by raga category
-            st.markdown("### Performance by Raga Category")
-            
-            # Group ragas into categories (for demonstration - actual categorization might vary)
-            # This is a simplified example - you would need to define actual categories
-            raga_categories = {
-                "Morning": ["Bhairav", "Ahir Bhairav", "Todi"],
-                "Afternoon": ["Shuddh Sarang", "Bhimpalasi", "Multani"],
-                "Evening": ["Yaman", "Bageshri", "Puriya Dhanashree"],
-                "Night": ["Darbari", "Malkauns", "Chandrakauns"]
-            }
-            
-            # Calculate accuracy for each category
-            category_acc = {}
-            for category, ragas in raga_categories.items():
-                # Convert raga names to indices
-                raga_indices = [list(class_names).index(raga) if raga in class_names else -1 for raga in ragas]
-                raga_indices = [idx for idx in raga_indices if idx >= 0]
                 
-                if raga_indices:
-                    # Get samples belonging to this category
-                    cat_mask = np.isin(y_test, raga_indices)
-                    if np.any(cat_mask):
-                        cat_acc = np.mean(y_pred[cat_mask] == y_test[cat_mask])
-                        category_acc[category] = cat_acc
+        # Overall accuracy and loss
+        accuracy = np.mean(y_pred == y_test)
+        
+        # Top-K accuracy 
+        top3_accuracy = np.mean([y_test[i] in np.argsort(y_pred_proba[i])[-3:] for i in range(len(y_test))])
+        top5_accuracy = np.mean([y_test[i] in np.argsort(y_pred_proba[i])[-5:] for i in range(len(y_test))])
+        
+        metrics_data = pd.DataFrame({
+            "Metric": ["Test Accuracy", "Top-3 Accuracy", "Top-5 Accuracy"],
+            "Value": [f"{accuracy:.2%}", f"{top3_accuracy:.2%}", f"{top5_accuracy:.2%}"]
+        })
+        
+        st.table(metrics_data)
+        
+        # Classification report for top classes
+        st.markdown("### Detailed Metrics by Class")
+        top_classes = 10
+        report_df = get_classification_report(y_test, y_pred, class_names)
+        report_df = report_df.sort_values(by='support', ascending=False).head(top_classes)
+        
+        # Format the report for better readability
+        report_df['precision'] = report_df['precision'].map('{:.2%}'.format)
+        report_df['recall'] = report_df['recall'].map('{:.2%}'.format)
+        report_df['f1-score'] = report_df['f1-score'].map('{:.2%}'.format)
+        report_df['support'] = report_df['support'].astype(int)
+        
+        st.dataframe(report_df)
+        
+        # ROC curves
+        st.markdown("### ROC Curves")
+        roc_fig = plot_roc_curves(y_test, y_pred_proba, class_names)
+        st.pyplot(roc_fig)
+        
+        # Performance by raga category
+        st.markdown("### Performance by Raga Category")
+        
+        # Define actual raga categories based on available class names
+        # This is an example - adjust based on your actual raga categories
+        raga_categories = {}
+        
+        # Try to categorize based on common raga categories
+        morning_ragas = ["Bhairav", "Ahir Bhairav", "Todi", "Lalit", "Gunakri"]
+        afternoon_ragas = ["Shuddh Sarang", "Bhimpalasi", "Multani", "Madhuvanti", "Poorvi"]
+        evening_ragas = ["Yaman", "Bageshri", "Puriya Dhanashree", "Marwa", "Shree"]
+        night_ragas = ["Darbari", "Malkauns", "Chandrakauns", "Jog", "Bihag"]
+        
+        # Add ragas that exist in your class_names
+        for raga in morning_ragas:
+            if raga in class_names:
+                if "Morning" not in raga_categories:
+                    raga_categories["Morning"] = []
+                raga_categories["Morning"].append(raga)
+        
+        for raga in afternoon_ragas:
+            if raga in class_names:
+                if "Afternoon" not in raga_categories:
+                    raga_categories["Afternoon"] = []
+                raga_categories["Afternoon"].append(raga)
+                
+        for raga in evening_ragas:
+            if raga in class_names:
+                if "Evening" not in raga_categories:
+                    raga_categories["Evening"] = []
+                raga_categories["Evening"].append(raga)
+                
+        for raga in night_ragas:
+            if raga in class_names:
+                if "Night" not in raga_categories:
+                    raga_categories["Night"] = []
+                raga_categories["Night"].append(raga)
+        
+        # If no categories were found, create sample ones
+        if not raga_categories:
+            # Split ragas into 4 random groups for demonstration
+            available_ragas = list(class_names)
+            chunk_size = max(1, len(available_ragas) // 4)
             
-            # Create bar chart for category performance
-            if category_acc:
-                fig = px.bar(
-                    x=list(category_acc.keys()),
-                    y=list(category_acc.values()),
-                    labels={"x": "Raga Category", "y": "Accuracy"},
-                    title="Accuracy by Raga Category",
-                    color=list(category_acc.keys()),
-                    color_discrete_sequence=px.colors.qualitative.Set2,
-                    text_auto='.2%'
-                )
-                fig.update_yaxes(range=[0, 1])
-                st.plotly_chart(fig, use_container_width=True)
+            raga_categories = {
+                "Group 1": available_ragas[:chunk_size],
+                "Group 2": available_ragas[chunk_size:2*chunk_size],
+                "Group 3": available_ragas[2*chunk_size:3*chunk_size],
+                "Group 4": available_ragas[3*chunk_size:]
+            }
+        
+        # Calculate accuracy for each category
+        category_acc = {}
+        for category, ragas in raga_categories.items():
+            # Convert raga names to indices
+            raga_indices = [list(class_names).index(raga) if raga in class_names else -1 for raga in ragas]
+            raga_indices = [idx for idx in raga_indices if idx >= 0]
+            
+            if raga_indices:
+                # Get samples belonging to this category
+                cat_mask = np.isin(y_test, raga_indices)
+                if np.any(cat_mask):
+                    cat_acc = np.mean(y_pred[cat_mask] == y_test[cat_mask])
+                    category_acc[category] = cat_acc
+        
+        # Create bar chart for category performance
+        if category_acc:
+            fig = px.bar(
+                x=list(category_acc.keys()),
+                y=list(category_acc.values()),
+                labels={"x": "Raga Category", "y": "Accuracy"},
+                title="Accuracy by Raga Category",
+                color=list(category_acc.keys()),
+                color_discrete_sequence=px.colors.qualitative.Set2,
+                text_auto='.2%'
+            )
+            fig.update_yaxes(range=[0, 1])
+            st.plotly_chart(fig, use_container_width=True)
     
     with tab3:
         st.markdown("## Confusion Matrix Analysis")
+                
+        # Show confusion matrix
+        cm_top_n = st.slider("Number of classes to display", 5, min(20, len(class_names)), 10)
+        cm_fig = plot_confusion_matrix(y_test, y_pred, class_names, top_n=cm_top_n)
+        st.pyplot(cm_fig)
+            
+        st.markdown("### Confusion Matrix Insights")
         
-        col1, col2 = st.columns([2, 1])
+        # Calculate most confused pairs
+        cm = confusion_matrix(y_test, y_pred)
+        np.fill_diagonal(cm, 0)  # Remove diagonal elements
         
-        with col1:
-            # Show confusion matrix
-            cm_top_n = st.slider("Number of classes to display", 5, 20, 10)
-            cm_fig = plot_confusion_matrix(y_test, y_pred, class_names, top_n=cm_top_n)
-            st.pyplot(cm_fig)
-            
-        with col2:
-            st.markdown("### Confusion Matrix Insights")
-            
-            # Calculate most confused pairs
-            cm = confusion_matrix(y_test, y_pred)
-            np.fill_diagonal(cm, 0)  # Remove diagonal elements
-            
-            # Get top confused pairs
-            confused_pairs = []
-            for i in range(len(cm)):
-                for j in range(len(cm)):
-                    if i != j and cm[i, j] > 0:
-                        confused_pairs.append((i, j, cm[i, j]))
-            
-            # Sort by confusion count
-            confused_pairs.sort(key=lambda x: x[2], reverse=True)
-            
-            # Display top confused pairs
-            st.markdown("#### Most Confused Raga Pairs")
-            
-            confused_data = []
-            for i, j, count in confused_pairs[:10]:  # Top 10 confused pairs
+        # Get top confused pairs
+        confused_pairs = []
+        for i in range(len(cm)):
+            for j in range(len(cm)):
+                if i != j and cm[i, j] > 0:
+                    confused_pairs.append((i, j, cm[i, j]))
+        
+        # Sort by confusion count
+        confused_pairs.sort(key=lambda x: x[2], reverse=True)
+        
+        # Display top confused pairs
+        st.markdown("#### Most Confused Raga Pairs")
+        
+        confused_data = []
+        for i, j, count in confused_pairs[:10]:  # Top 10 confused pairs
+            # Avoid index errors
+            if i < len(class_names) and j < len(class_names):
+                test_count = np.sum(y_test == i)
+                confusion_rate = count/test_count if test_count > 0 else 0
                 confused_data.append({
                     "True Raga": class_names[i],
                     "Predicted As": class_names[j],
                     "Count": int(count),
-                    "Confusion Rate": f"{count/np.sum(y_test == i):.1%}"
+                    "Confusion Rate": f"{confusion_rate:.1%}"
                 })
-            
-            confused_df = pd.DataFrame(confused_data)
-            st.dataframe(confused_df)
-            
-            # Calculate error distribution
-            error_mask = y_pred != y_test
-            error_counts = np.bincount(y_test[error_mask], minlength=len(class_names))
-            
-            # Get ragas with highest error rates
-            error_rates = error_counts / np.bincount(y_test, minlength=len(class_names))
-            top_error_indices = np.argsort(error_rates)[-5:][::-1]
-            
-            # Display ragas with highest error rates
-            st.markdown("#### Ragas with Highest Error Rates")
-            
-            error_data = []
-            for idx in top_error_indices:
-                if np.sum(y_test == idx) > 0:  # Avoid division by zero
-                    error_data.append({
-                        "Raga": class_names[idx],
-                        "Error Rate": f"{error_rates[idx]:.1%}",
-                        "Sample Count": int(np.sum(y_test == idx))
-                    })
-            
-            error_df = pd.DataFrame(error_data)
-            st.dataframe(error_df)
+        
+        confused_df = pd.DataFrame(confused_data)
+        st.dataframe(confused_df)
+        
+        # Calculate error distribution
+        error_mask = y_pred != y_test
+        error_counts = np.bincount(y_test[error_mask], minlength=len(class_names))
+        
+        # Get ragas with highest error rates
+        class_counts = np.bincount(y_test, minlength=len(class_names))
+        error_rates = np.zeros_like(error_counts, dtype=float)
+        for i in range(len(class_counts)):
+            if class_counts[i] > 0:
+                error_rates[i] = error_counts[i] / class_counts[i]
+        
+        top_error_indices = np.argsort(error_rates)[-5:][::-1]
+        
+        # Display ragas with highest error rates
+        st.markdown("#### Ragas with Highest Error Rates")
+        
+        error_data = []
+        for idx in top_error_indices:
+            if idx < len(class_names) and np.sum(y_test == idx) > 0:  # Avoid index errors
+                error_data.append({
+                    "Raga": class_names[idx],
+                    "Error Rate": f"{error_rates[idx]:.1%}",
+                    "Sample Count": int(np.sum(y_test == idx))
+                })
+        
+        error_df = pd.DataFrame(error_data)
+        st.dataframe(error_df)
     
     with tab4:
         st.markdown("## Learning Curves")
         
-        # Load actual training history instead of using sample data
-        try:
-            training_history = np.load("training_history.npy", allow_pickle=True).item()
-        except Exception as e:
-            # Fall back to sample data if file doesn't exist
-            st.warning("Using sample training history for demonstration")
-            training_history = {
-                'accuracy': [0.45, 0.58, 0.67, 0.72, 0.76, 0.79, 0.82, 0.84, 0.86, 0.87],
-                'val_accuracy': [0.41, 0.52, 0.60, 0.64, 0.67, 0.69, 0.71, 0.72, 0.73, 0.74],
-                'loss': [1.72, 1.35, 1.10, 0.92, 0.78, 0.67, 0.58, 0.52, 0.47, 0.43],
-                'val_loss': [1.85, 1.51, 1.28, 1.15, 1.05, 0.98, 0.92, 0.88, 0.85, 0.83]
-            }
-
-# Then use training_history instead of sample_history in your visualization code
+        # Load training history
+        training_history = load_training_history()
         
         col1, col2 = st.columns([3, 1])
         
         with col1:
             # Plot learning curves
-            learning_fig = plot_learning_curves(sample_history)
+            learning_fig = plot_learning_curves(training_history)
             st.pyplot(learning_fig)
             
         with col2:
             st.markdown("### Training Analysis")
             
             # Calculate metrics
-            final_train_acc = sample_history['accuracy'][-1]
-            final_val_acc = sample_history['val_accuracy'][-1]
-            final_train_loss = sample_history['loss'][-1]
-            final_val_loss = sample_history['val_loss'][-1]
+            final_train_acc = training_history['accuracy'][-1]
+            final_val_acc = training_history['val_accuracy'][-1]
+            final_train_loss = training_history['loss'][-1]
+            final_val_loss = training_history['val_loss'][-1]
             
             overfitting = final_val_loss / final_train_loss
             
@@ -482,7 +577,7 @@ if model is not None and data is not None:
             st.markdown("### Convergence Analysis")
             
             # Calculate if training has converged
-            last_5_val_loss = sample_history['val_loss'][-5:]
+            last_5_val_loss = training_history['val_loss'][-5:]
             loss_diff = np.abs(np.diff(last_5_val_loss))
             avg_change = np.mean(loss_diff)
             
@@ -501,53 +596,64 @@ if model is not None and data is not None:
             
             if uploaded_file is not None:
                 # Predict on uploaded file
+                st.info("Analyzing audio...")
                 fig, top_ragas, top_probs, predicted_class = predict_and_visualize(model, uploaded_file, class_names)
                 
                 if fig is not None:
                     st.pyplot(fig)
                     
                     # Show prediction summary
-                    st.markdown(f"**Predicted Raga:** {class_names[predicted_class]} ({top_probs[0]:.1%} confidence)")
+                    if predicted_class is not None and predicted_class < len(class_names):
+                        st.markdown(f"**Predicted Raga:** {class_names[predicted_class]} ({top_probs[0]:.1%} confidence)")
         
         with col2:
             # Sample testing section
             st.markdown("### Batch Testing")
             
             # Generate sample test results
-            n_samples = st.slider("Number of test samples", 5, 50, 10)
+            n_samples = st.slider("Number of test samples", 5, min(50, len(y_test)), 10)
             
             if st.button("Run Batch Test"):
                 # Select random samples
                 batch_indices = np.random.choice(len(y_test), n_samples, replace=False)
-                batch_X = X_test[batch_indices]
-                batch_y = y_test[batch_indices]
                 
-                # Make predictions
-                batch_preds = model.predict(batch_X)
-                batch_pred_classes = np.argmax(batch_preds, axis=1)
-                
-                # Display results
-                batch_results = []
-                for i in range(n_samples):
-                    true_raga = class_names[batch_y[i]]
-                    pred_raga = class_names[batch_pred_classes[i]]
-                    confidence = batch_preds[i][batch_pred_classes[i]]
-                    correct = batch_pred_classes[i] == batch_y[i]
+                if hasattr(data, 'chromagrams'):
+                    # If we have actual test data
+                    batch_X = X_test[batch_indices]
+                    batch_y = y_test[batch_indices]
                     
-                    batch_results.append({
-                        "Sample": i+1,
-                        "True Raga": true_raga,
-                        "Predicted": pred_raga,
-                        "Confidence": f"{confidence:.1%}",
-                        "Correct": "✓" if correct else "✗"
-                    })
-                
-                results_df = pd.DataFrame(batch_results)
-                st.dataframe(results_df, use_container_width=True)
-                
-                # Show batch accuracy
-                batch_accuracy = np.mean(batch_pred_classes == batch_y)
-                st.metric("Batch Accuracy", f"{batch_accuracy:.1%}")
+                    # Make predictions
+                    with st.spinner("Running batch test..."):
+                        batch_preds = model.predict(batch_X)
+                        batch_pred_classes = np.argmax(batch_preds, axis=1)
+                    
+                    # Display results
+                    batch_results = []
+                    for i in range(n_samples):
+                        true_raga = class_names[batch_y[i]] if batch_y[i] < len(class_names) else "Unknown"
+                        pred_raga = class_names[batch_pred_classes[i]] if batch_pred_classes[i] < len(class_names) else "Unknown"
+                        confidence = batch_preds[i][batch_pred_classes[i]]
+                        correct = batch_pred_classes[i] == batch_y[i]
+                        
+                        batch_results.append({
+                            "Sample": i+1,
+                            "True Raga": true_raga,
+                            "Predicted": pred_raga,
+                            "Confidence": f"{confidence:.1%}",
+                            "Correct": "✓" if correct else "✗"
+                        })
+                    
+                    results_df = pd.DataFrame(batch_results)
+                    st.dataframe(results_df, use_container_width=True)
+                    
+                    # Show batch accuracy
+                    batch_accuracy = np.mean(batch_pred_classes == batch_y)
+                    st.metric("Batch Accuracy", f"{batch_accuracy:.1%}")
+                else:
+                    st.warning("Test data not available for batch testing")
+
+else:
+    st.error("Failed to load the model. Please check if 'raga_model5.keras' exists in the root directory.")
 
 # Footer
 st.markdown("---")
